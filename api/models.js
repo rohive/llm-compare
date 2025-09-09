@@ -43,8 +43,6 @@ export default async function handler(req, res) {
     console.warn('Anthropic SDK list failed:', err?.message || err);
   }
 
-  console.warn("OpenAI", openai);
-  console.warn("key",process.env.ANTHROPIC_API_KEY);
 
   // Fallback REST tries (only if SDKs not present but keys available)
   if (openai.length === 0 && process.env.OPENAI_API_KEY) {
