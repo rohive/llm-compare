@@ -244,7 +244,7 @@ export default function App() {
     };
 
     try {
-      await streamCompareFetch("/api/compare/stream", { query, modelIds: selected }, onEvent);
+      await streamCompareFetch("/api/stream", { query, modelIds: selected }, onEvent);
     } catch (err) {
       console.error("Stream failed", err);
       alert("Stream failed: " + (err.message || err));
