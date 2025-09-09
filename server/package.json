@@ -1,0 +1,20 @@
+{
+  "name": "llm-compare-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "NODE_ENV=development node --enable-source-maps src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.61.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0",
+    "express": "^4.18.2",
+    "helmet": "^6.0.0",
+    "node-fetch": "^3.3.1",
+    "openai": "^5.20.0",
+    "p-limit": "^4.0.0",
+    "pino": "^8.0.0"
+  }
+}

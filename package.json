@@ -1,0 +1,19 @@
+{
+  "name": "llm-compare-monolith",
+  "private": true,
+  "scripts": {
+    "install:all": "cd server && npm ci && cd ../frontend && npm ci",
+    "build:frontend": "cd frontend && npm ci && npm run build",
+    "build": "npm run build:frontend",
+    "start": "node server/src/index.js",
+    "start:dev": "concurrently \"cd server && npm run dev\" \"cd frontend && npm run dev\"",
+    "postinstall": "cd server && npm ci && cd ../frontend && npm ci"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "concurrently": "^8.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
