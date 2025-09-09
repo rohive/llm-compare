@@ -7,3 +7,4 @@
 # Environment files
 .env
 **/.env
+**/.env.dev
