@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "install:all": "cd server && npm ci && cd ../frontend && npm ci",
-    "build:frontend": "cd frontend && npm ci && npm run build",
+    "build:frontend": "cd frontend && npm ci && npm run build && rm -rf ../dist && cp -R dist ../dist",
     "build": "npm run build:frontend",
     "start": "node server/src/index.js",
     "start:dev": "concurrently \"cd server && npm run dev\" \"cd frontend && npm run dev\"",
