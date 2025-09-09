@@ -1,7 +1,33 @@
-import pLimit from 'p-limit';
 import { callOpenAI, callAnthropic } from './providerClients.js';
 
-const concurrency = pLimit(3);
+// Use a simple concurrency limiter implementation
+const createConcurrencyLimiter = (concurrency) => {
+  const queue = [];
+  let running = 0;
+
+  const next = () => {
+    if (running >= concurrency || !queue.length) return;
+    running++;
+    const { fn, resolve, reject } = queue.shift();
+    Promise.resolve()
+      .then(fn)
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        running--;
+        next();
+      });
+  };
+
+  return (fn) => {
+    return new Promise((resolve, reject) => {
+      queue.push({ fn, resolve, reject });
+      next();
+    });
+  };
+};
+
+const concurrency = createConcurrencyLimiter(3);
 const CACHE_TTL_MS = 1000 * 60 * 30;
 const cache = new Map();
 
