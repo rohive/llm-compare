@@ -5,6 +5,7 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import modelsRoute from './routes/models.js';
 import compareRoute from './routes/compare.js';
+import streamRoute from './routes/stream.js';
 import likesRoute from './routes/likes.js';
 
 // Robust dotenv loading:
@@ -44,6 +45,7 @@ console.log('ANTHROPIC_API_KEY present:', !!process.env.ANTHROPIC_API_KEY);
 // Register API routes
 app.use('/api/models', modelsRoute);
 app.use('/api/compare', compareRoute);
+app.use('/api/stream', streamRoute);
 app.use('/api/likes', likesRoute);
 
 // Serve frontend static build
