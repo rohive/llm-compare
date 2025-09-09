@@ -1,4 +1,3 @@
-import fetch from 'node-fetch'; // only used as fallback for REST listing if SDK missing
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ openai: [], anthropics: [] });
