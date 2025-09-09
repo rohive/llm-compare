@@ -52,19 +52,6 @@ async function callProvider(provider, engine, query) {
   return { error: true, message: 'unsupported provider: ' + provider };
 }
 
-/**
- * Helper: returns true when we should attempt streaming SSE.
- * Vercel's Node serverless functions buffer responses, so detect it and fallback.
- */
-function platformSupportsStreaming(res) {
-  // If Vercel is present, assume it buffers Node serverless responses.
-  // If you deploy to a host that supports streaming (Render, self-hosted), unset VERCEL to enable SSE.
-  if (process.env.VERCEL) return false;
-  // If res.flushHeaders exists and writable, we can try streaming
-  if (typeof res.flushHeaders === 'function' && typeof res.write === 'function') return true;
-  return false;
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'method_not_allowed' });
@@ -76,43 +63,31 @@ export default async function handler(req, res) {
   }
 
   const selected = modelIds.slice(0, 3);
-
-  const canStream = platformSupportsStreaming(res);
-
-  // If streaming is not available (e.g. Vercel), collect results and return JSON at end
-  const collectedResponses = [];
-
-  // SSE send helper (only used when canStream === true)
-  if (canStream) {
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-transform');
-    res.setHeader('Connection', 'keep-alive');
-    // common helpful header to reduce buffering by proxies
-    res.setHeader('X-Accel-Buffering', 'no');
-    if (typeof res.flushHeaders === 'function') {
-      try { res.flushHeaders(); } catch (e) { /* ignore */ }
-    }
+  
+  // Set up SSE headers
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
   }
 
+  let finished = 0;
   const sendEvent = (event, data) => {
     const payload = typeof data === 'string' ? data : JSON.stringify(data);
-    if (!canStream) return; // noop when not streaming
     res.write(`event: ${event}\n`);
     payload.split(/\n/).forEach(line => res.write(`data: ${line}\n`));
     res.write('\n');
   };
 
-  let finished = 0;
-
   const processModel = async (id) => {
     if (isDeprecatedModelId(id)) {
-      const skipped = { modelId: id, modelDisplay: id, error: true, message: 'deprecated', metrics: null };
-      if (canStream) {
-        sendEvent('model-skipped', { modelId: id, reason: 'deprecated' });
-      } else {
-        collectedResponses.push(skipped);
-      }
+      sendEvent('model-skipped', { modelId: id, reason: 'deprecated' });
       finished++;
+      if (finished === selected.length) { 
+        sendEvent('done', { ok: true }); 
+        res.end(); 
+      }
       return;
     }
 
@@ -120,38 +95,57 @@ export default async function handler(req, res) {
     const key = cacheKey(provider, engine, query);
     const cached = cache.get(key);
 
+    // Handle cached response
     if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
       const result = cached.val;
-      if (canStream) {
-        sendEvent('model-start', { modelId: id, modelDisplay: result.modelDisplay, cached: true });
-        const text = result.text || '';
-        const chunkSize = 200;
-        for (let i = 0; i < text.length; i += chunkSize) {
-          sendEvent('model-chunk', { modelId: id, text: text.slice(i, i + chunkSize) });
-        }
-        sendEvent('model-end', { modelId: id, metrics: result.metrics });
-      } else {
-        collectedResponses.push({ ...result, cached: true });
+      sendEvent('model-start', { 
+        modelId: id, 
+        modelDisplay: result.modelDisplay, 
+        cached: true 
+      });
+      
+      // Stream the cached response in chunks
+      const text = result.text || '';
+      const chunkSize = 200;
+      for (let i = 0; i < text.length; i += chunkSize) {
+        sendEvent('model-chunk', { 
+          modelId: id, 
+          text: text.slice(i, i + chunkSize) 
+        });
       }
+      
+      sendEvent('model-end', { 
+        modelId: id, 
+        metrics: result.metrics 
+      });
+      
       finished++;
+      if (finished === selected.length) { 
+        sendEvent('done', { ok: true }); 
+        res.end(); 
+      }
       return;
     }
 
+    // Process new request
     try {
-      if (canStream) {
-        sendEvent('model-start', { modelId: id, modelDisplay: `${provider}:${engine}`, cached: false });
-      }
+      sendEvent('model-start', { 
+        modelId: id, 
+        modelDisplay: `${provider}:${engine}`, 
+        cached: false 
+      });
 
       const result = await callProvider(provider, engine, query);
 
       if (result?.error) {
-        const errObj = { modelId: id, modelDisplay: `${provider}:${engine}`, error: true, message: result.message, status: result.status ?? null, body: result.body ?? null };
-        if (canStream) {
-          sendEvent('model-error', errObj);
-        } else {
-          collectedResponses.push(errObj);
-        }
+        sendEvent('model-error', {
+          modelId: id,
+          message: result.message,
+          status: result.status,
+          body: result.body
+        });
       } else {
+        // Cache the successful response
         const out = {
           modelId: id,
           modelDisplay: `${provider}:${engine}`,
@@ -162,56 +156,49 @@ export default async function handler(req, res) {
           },
           raw: result.raw || null
         };
-
-        // cache
+        
         cache.set(key, { ts: Date.now(), val: out });
-
-        if (canStream) {
-          const chunkSize = 200;
-          for (let i = 0; i < out.text.length; i += chunkSize) {
-            sendEvent('model-chunk', { modelId: id, text: out.text.slice(i, i + chunkSize) });
-          }
-          sendEvent('model-end', { modelId: id, metrics: out.metrics });
-        } else {
-          collectedResponses.push(out);
+        
+        // Stream the response in chunks
+        const chunkSize = 200;
+        for (let i = 0; i < out.text.length; i += chunkSize) {
+          sendEvent('model-chunk', {
+            modelId: id,
+            text: out.text.slice(i, i + chunkSize)
+          });
         }
+        
+        sendEvent('model-end', {
+          modelId: id,
+          metrics: out.metrics
+        });
       }
     } catch (err) {
-      const errObj = { modelId: id, modelDisplay: `${provider}:${engine}`, error: true, message: err.message || String(err) };
       console.error(`Error processing model ${id}:`, err);
-      if (canStream) {
-        sendEvent('model-error', errObj);
-      } else {
-        collectedResponses.push(errObj);
-      }
+      sendEvent('model-error', {
+        modelId: id,
+        message: err.message || String(err)
+      });
     }
 
+    // Check if all models have finished
     finished++;
+    if (finished === selected.length) {
+      sendEvent('done', { ok: true });
+      res.end();
+    }
   };
 
+  // Process all models with concurrency
   try {
-    // Launch processing with concurrency
     await Promise.all(selected.map(id => concurrency(() => processModel(id))));
   } catch (err) {
     console.error('Stream handler error:', err);
-    if (!canStream && !res.headersSent) {
-      return res.status(500).json({ error: 'internal_error', message: 'An error occurred while processing your request' });
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'internal_error',
+        message: 'An error occurred while processing your request'
+      });
     }
-    if (canStream && !res.headersSent) {
-      sendEvent('model-error', { message: 'internal_error' });
-      sendEvent('done', { ok: false });
-      res.end();
-      return;
-    }
-  }
-
-  // all done
-  if (canStream) {
-    sendEvent('done', { ok: true });
-    res.end();
-    return;
-  } else {
-    // Return aggregated JSON payload identical shape to non-streaming API
-    return res.status(200).json({ responses: collectedResponses });
   }
 }
